@@ -1,0 +1,260 @@
+/*
+ * File:   cucu99.c
+ * Author: GUSTAVO RAMIREZ  http://www.unrobotica.com
+ * Este programa controla el sonido de un reloj cucu
+ * emplea un reloj con suiche trigger que con un flanco de subida
+ * este desencadena una interrupcion que produce el sonido del cucu
+ * el sistema cuenta los pulsos horario del reloj hasta 12 y reinicia en uno
+ * tiene modo sleep para ahorrar bateria al maximo
+ * el sistema despierta con el pulso trigger del reloj
+ * ademas el sistema abre y cierra la puerta de la jaula del pajaro
+ * accionando un pequeño motor DC con reduccion. Que consume 165mA
+ * Cierre y apertura entre 1.5 y 2 segundos
+ * El circuito tiene Micro relevos de estado solido para conectar y desconectar
+ * El modulo de MP3 y el driver del motor que se alimentan a 4.5v
+ * En estado dormido consume 12uA.
+ * 
+ * usa tres pilas de 1.5v alcalinas de 2850mAh.
+ * consumo por paso por hora
+ * 
+ * 
+ * Created on 17 de marzo de 2020, 05:58 PM
+ */
+
+
+#include <xc.h>
+#include "Configuracion.h"
+#include "USART_libreria.h"
+
+int cont=0;
+int i;
+
+//***********tramas de los sonidos para el chip JQ6500-16P
+const char cucu1[6]={0x7E, 0x04, 0x03, 0x00, 0x01, 0xEF};//1 segundo 
+const char open[6]={0x7E, 0x04, 0x03, 0x00, 0x02, 0xEF};//5 segundos
+const char close[6]={0x7E, 0x04, 0x03, 0x00, 0x03, 0xEF};//1 segundo
+
+//********declaracion de funciones a usar
+void sonido_cucu(void);
+void cucu(void);
+void sonido_abrir(void);
+void sonido_cerrar(void);
+void abrir (void);
+void cerrar (void);
+void parar (void);
+
+//**************************programa principal***********
+void main(void) {
+    OSCCON = 0b01101010;//4 MHZ INTERNAL
+    OSCSTATbits.HFIOFR=1;//interno alta frecuencia 16mhz
+    TRISB = 0b00000011;      //RC6 = Tx -> Salida
+    TRISA = 0b11111111;// a como salidas
+    APFCON0bits.RXDTSEL=0; //rx en rb1
+    APFCON1bits.TXCKSEL=0; //tx con rb2 
+    INTCONbits.INTE = 1; // Habilitar INT0 
+    INTCONbits.INTF = 0; //FLag 0
+    IOCBPbits.IOCBP0 = 1; //Flanco ascendente
+    INTCONbits.GIE = 1;
+    ANSELB=0b00000000;
+    ANSELA=0b00000000;
+    WPUB=0b11111111;
+    WPUA=0b00000000;
+    USART_Init(9600);
+    parar();
+    LATBbits.LATB5=0;//apagar Relevo
+    
+    
+  
+//************************************programa ciclico****************    
+    while(1){
+        if(cont>0){
+        LATBbits.LATB5=1;//encender relevo
+        __delay_ms(1000);
+        sonido_abrir();//sonido abrir aporta 5 segundos
+        cucu();
+        sonido_cerrar();//sonido cerrar aporta 1  segundo
+        __delay_ms(1000);
+        LATBbits.LATB5=0;//apagar relevo
+        SLEEP();     
+     }
+     SLEEP();   
+     }
+}
+    
+
+//**********************************rutina de interupcion*************
+void __interrupt() INT_isr(void){
+    cont++; // cont = cont + 1
+    if(cont>12){
+         cont=1;
+         }
+    __delay_ms(50);//este delay permite filtrar transitorios del suicheo
+    INTCONbits.INTF = 0;
+    }
+
+//***************************funciones que producen sonidos en modo MP3 
+ void sonido_cucu(void){
+ for(i=0;i<6;i++){
+ USART_Tx(cucu1[i]);
+ __delay_ms(1);//duracion de un bits, 8 +sta+sto 9600bps 104.2uS=1.042ms
+ }   
+ __delay_ms(1300);//duracion Real de este sonido con un espacio corto de 300mS
+ }
+
+void sonido_abrir(void){
+ for(i=0;i<6;i++){//mandamos trama MP3 del archivo abrir de 5s
+ USART_Tx(open[i]);
+ __delay_ms(1);//duracion de un bits, 8 +sta+sto 9600bps 104.2uS=1.042ms
+ }
+ __delay_ms(4000);
+ abrir();
+ __delay_ms(1000);//esto dura la apertura pero el sonido dura 5s.
+ parar();
+ }
+
+void sonido_cerrar(void){
+ for(i=0;i<6;i++){
+ USART_Tx(close[i]);
+ __delay_ms(1);//tiempo de bit si no se hace esto la usart se empacha y se bloquea
+ } 
+ __delay_ms(600);
+ cerrar();
+ __delay_ms(800);//tiempo de accionamiento y sonido
+ parar();
+ //no requiere mas tiempo el sonido y el cierre duran lo mismo 
+ }
+
+//*************accionamiento del motor***********************
+void abrir (void){
+    LATBbits.LATB7=0;//direccion abrir
+    LATBbits.LATB6=1;
+}
+
+void cerrar (void){
+    LATBbits.LATB7=1;//direccion cerrar
+    LATBbits.LATB6=0;   
+}
+
+void parar (void){
+    LATBbits.LATB7=0;//se detiene motor
+    LATBbits.LATB6=0;
+}
+
+
+void cucu (void){
+
+if(cont==1){
+sonido_cucu();//1.3s
+return;
+}
+if(cont==2){
+sonido_cucu();
+sonido_cucu();
+return;
+}
+if(cont==3){
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+return;
+}
+if(cont==4){
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+return;
+}
+if(cont==5){
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+return;
+}
+if(cont==6){
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+return;
+}
+if(cont==7){
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+return;
+}
+if(cont==8){
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+return;
+}
+if(cont==9){
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+return;
+}
+if(cont==10){
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+return;
+}
+if(cont==11){
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+}
+if(cont==12){ // duraccion 15.6 segundos
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+sonido_cucu();
+return;
+}
+return;
+}
